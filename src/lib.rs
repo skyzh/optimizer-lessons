@@ -1,3 +1,3 @@
-mod ir1;
-mod ir2;
-mod ir3;
+pub mod ir1;
+pub mod ir2;
+pub mod ir3;
