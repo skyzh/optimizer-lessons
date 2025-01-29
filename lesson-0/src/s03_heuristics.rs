@@ -1,10 +1,25 @@
 use std::sync::Arc;
 
-#[derive(Clone)]
-pub struct TableId(pub usize);
+use super::*;
 
-pub struct Scan {
-    pub table: TableId,
+// Recursive access and rewrite
+pub fn apply_rule_bottom_up(
+    node: Arc<RelNode>,
+    rule: impl Fn(Arc<RelNode>) -> Option<Arc<RelNode>>,
+) -> Arc<RelNode> {
+    fn apply_rule_bottom_up_inner(
+        node: Arc<RelNode>,
+        rule: &impl Fn(Arc<RelNode>) -> Option<Arc<RelNode>>,
+    ) -> Arc<RelNode> {
+        let mut children = Vec::new();
+        for child in node.children() {
+            let child = apply_rule_bottom_up_inner(child, rule);
+            children.push(child);
+        }
+        let rel = Arc::new(node.clone_with_children(children));
+        rule(rel.clone()).unwrap_or_else(|| rel)
+    }
+    apply_rule_bottom_up_inner(node, &rule)
 }
 
 impl Scan {
@@ -20,10 +35,17 @@ impl Scan {
     }
 }
 
-pub struct Join {
-    pub left: Arc<RelNode>,
-    pub right: Arc<RelNode>,
-    pub cond: Arc<RelNode>,
+impl Filter {
+    pub fn children(&self) -> Vec<Arc<RelNode>> {
+        vec![self.child.clone(), self.predicate.clone()]
+    }
+
+    pub fn clone_with_children(&self, children: Vec<Arc<RelNode>>) -> Self {
+        Self {
+            child: children[0].clone(),
+            predicate: children[1].clone(),
+        }
+    }
 }
 
 impl Join {
@@ -40,29 +62,6 @@ impl Join {
     }
 }
 
-pub struct Filter {
-    pub child: Arc<RelNode>,
-    pub predicate: Arc<RelNode>,
-}
-
-impl Filter {
-    pub fn children(&self) -> Vec<Arc<RelNode>> {
-        vec![self.child.clone(), self.predicate.clone()]
-    }
-
-    pub fn clone_with_children(&self, children: Vec<Arc<RelNode>>) -> Self {
-        Self {
-            child: children[0].clone(),
-            predicate: children[1].clone(),
-        }
-    }
-}
-
-pub struct EqPred {
-    pub left: Arc<RelNode>,
-    pub right: Arc<RelNode>,
-}
-
 impl EqPred {
     pub fn children(&self) -> Vec<Arc<RelNode>> {
         vec![self.left.clone(), self.right.clone()]
@@ -74,10 +73,6 @@ impl EqPred {
             right: children[1].clone(),
         }
     }
-}
-
-pub struct ColumnRefPred {
-    pub column: usize,
 }
 
 impl ColumnRefPred {
@@ -93,10 +88,6 @@ impl ColumnRefPred {
     }
 }
 
-pub struct ConstPred {
-    pub value: i64,
-}
-
 impl ConstPred {
     pub fn children(&self) -> Vec<Arc<RelNode>> {
         vec![]
@@ -106,15 +97,6 @@ impl ConstPred {
         let _ = children;
         Self { value: self.value }
     }
-}
-
-pub enum RelNode {
-    Scan(Scan),
-    Join(Join),
-    Filter(Filter),
-    Eq(EqPred),
-    ColumnRef(ColumnRefPred),
-    Const(ConstPred),
 }
 
 impl RelNode {
@@ -143,40 +125,33 @@ impl RelNode {
     }
 }
 
-pub fn scan(table: TableId) -> RelNode {
-    RelNode::Scan(Scan { table })
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-pub fn filter(child: impl Into<Arc<RelNode>>, cond: impl Into<Arc<RelNode>>) -> RelNode {
-    RelNode::Filter(Filter {
-        child: child.into(),
-        predicate: cond.into(),
-    })
-}
-
-pub fn join(
-    left: impl Into<Arc<RelNode>>,
-    right: impl Into<Arc<RelNode>>,
-    cond: impl Into<Arc<RelNode>>,
-) -> RelNode {
-    RelNode::Join(Join {
-        left: left.into(),
-        right: right.into(),
-        cond: cond.into(),
-    })
-}
-
-pub fn eq_pred(left: impl Into<Arc<RelNode>>, right: impl Into<Arc<RelNode>>) -> RelNode {
-    RelNode::Eq(EqPred {
-        left: left.into(),
-        right: right.into(),
-    })
-}
-
-pub fn column_ref_pred(idx: usize) -> RelNode {
-    RelNode::ColumnRef(ColumnRefPred { column: idx })
-}
-
-pub fn const_pred(value: i64) -> RelNode {
-    RelNode::Const(ConstPred { value })
+    #[test]
+    fn test_bottom_up() {
+        let initial = join(
+            scan(TableId(0)),
+            join(
+                scan(TableId(1)),
+                scan(TableId(2)),
+                eq_pred(column_ref_pred(1), column_ref_pred(3)),
+            ),
+            eq_pred(column_ref_pred(1), column_ref_pred(3)),
+        );
+        let expected = join(
+            join(
+                scan(TableId(2)),
+                scan(TableId(1)),
+                eq_pred(column_ref_pred(1), column_ref_pred(3)),
+            ),
+            scan(TableId(0)),
+            eq_pred(column_ref_pred(1), column_ref_pred(3)),
+        );
+        assert_eq!(
+            apply_rule_bottom_up(Arc::new(initial), join_commute).as_ref(),
+            &expected
+        );
+    }
 }
