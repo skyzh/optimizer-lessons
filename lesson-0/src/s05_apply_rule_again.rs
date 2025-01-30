@@ -36,7 +36,7 @@ pub enum BindRelNode {
     Group(GroupId),
 }
 
-pub fn join_commute(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
+ fn join_commute_memo(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
     if let BindRelNode::Join(ref a) = &*node {
         // TODO: rewrite the condition
         return Some(Arc::new(BindRelNode::Join(BindJoin {
@@ -48,7 +48,7 @@ pub fn join_commute(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
     None
 }
 
-pub fn join_assoc(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
+ fn join_assoc_memo(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
     if let BindRelNode::Join(ref a) = &*node {
         if let BindRelNode::Join(b) = &*a.left {
             return Some(Arc::new(BindRelNode::Join(BindJoin {
@@ -72,14 +72,14 @@ pub fn apply_join_commute_rules_on_node(memo: &mut Memo, group: GroupId, node: M
             right: Arc::new(BindRelNode::Group(node.right)),
             cond: Arc::new(BindRelNode::Group(node.cond)),
         };
-        let applied = join_commute(Arc::new(BindRelNode::Join(binding))).unwrap();
+        let applied = join_commute_memo(Arc::new(BindRelNode::Join(binding))).unwrap();
         add_binding_to_memo(memo, group, applied);
     }
 }
 
 pub fn apply_join_assoc_rules_on_node(memo: &mut Memo, group: GroupId, node: MemoRelNode) {
     if let MemoRelNode::Join(node1) = node {
-        for expr in memo.get_all_exprs_in_group(node.left) {
+        for expr in memo.get_all_exprs_in_group(node1.left) {
             if let MemoRelNode::Join(node2) = expr {
                 let binding = BindJoin {
                     left: Arc::new(BindRelNode::Join(BindJoin {
@@ -90,7 +90,7 @@ pub fn apply_join_assoc_rules_on_node(memo: &mut Memo, group: GroupId, node: Mem
                     right: Arc::new(BindRelNode::Group(node1.right)),
                     cond: Arc::new(BindRelNode::Group(node1.cond)),
                 };
-                let applied = join_assoc(Arc::new(BindRelNode::Join(binding))).unwrap();
+                let applied = join_assoc_memo(Arc::new(BindRelNode::Join(binding))).unwrap();
                 add_binding_to_memo(memo, group, applied);
             }
         }
@@ -102,24 +102,24 @@ pub fn add_binding_to_memo(memo: &mut Memo, group: GroupId, node: Arc<BindRelNod
         let node = match &*node {
             BindRelNode::Scan(scan) => MemoRelNode::Scan(scan.clone()),
             BindRelNode::Join(join) => {
-                let left = add_binding_to_memo_inner(memo, join.left);
-                let right = add_binding_to_memo_inner(memo, join.right);
-                let cond = add_binding_to_memo_inner(memo, join.cond);
+                let left = add_binding_to_memo_inner(memo, join.left.clone());
+                let right = add_binding_to_memo_inner(memo, join.right.clone());
+                let cond = add_binding_to_memo_inner(memo, join.cond.clone());
                 MemoRelNode::Join(MemoJoin { left, right, cond })
             }
             BindRelNode::Filter(filter) => {
-                let child = add_binding_to_memo_inner(memo, filter.child);
-                let predicate = add_binding_to_memo_inner(memo, filter.predicate);
+                let child = add_binding_to_memo_inner(memo, filter.child.clone());
+                let predicate = add_binding_to_memo_inner(memo, filter.predicate.clone());
                 MemoRelNode::Filter(MemoFilter { child, predicate })
             }
             BindRelNode::Eq(eq) => {
-                let left = add_binding_to_memo_inner(memo, eq.left);
-                let right = add_binding_to_memo_inner(memo, eq.right);
+                let left = add_binding_to_memo_inner(memo, eq.left.clone());
+                let right = add_binding_to_memo_inner(memo, eq.right.clone());
                 MemoRelNode::Eq(MemoEqPred { left, right })
             }
             BindRelNode::ColumnRef(column_ref) => MemoRelNode::ColumnRef(column_ref.clone()),
             BindRelNode::Const(constant) => MemoRelNode::Const(constant.clone()),
-            BindRelNode::Group(group) => MemoRelNode::ColumnRef(*group),
+            BindRelNode::Group(group) => return *group,
         };
         memo.add_expr(node.clone())
     }

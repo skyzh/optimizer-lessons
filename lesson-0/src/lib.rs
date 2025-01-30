@@ -8,3 +8,4 @@ pub mod s04_memo;
 pub use s04_memo::*;
 pub mod s05_apply_rule_again;
 pub use s05_apply_rule_again::*;
+pub mod s06_new_repr;
