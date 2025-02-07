@@ -1,3 +1,3 @@
 [workspace]
-members = ["lesson-0"]
+members = ["lesson-1"]
 resolver = "2"

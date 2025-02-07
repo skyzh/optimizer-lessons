@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::GroupId;
+
 #[derive(Clone)]
 pub struct TableId(pub usize);
 
@@ -24,6 +26,29 @@ pub struct RelNode {
     pub typ: RelNodeType,
     pub children: Vec<Arc<RelNode>>,
     pub data: Arc<RelAttrType>,
+}
+
+pub struct MemoRelNode {
+    pub typ: RelNodeType,
+    pub children: Vec<GroupId>,
+    pub data: RelAttrType,
+}
+
+pub enum BindRelNode {
+    RelNode {
+        typ: RelNodeType,
+        children: Vec<Arc<BindRelNode>>,
+        data: Arc<RelAttrType>,
+    },
+    Group(GroupId),
+}
+
+pub enum RelNodeMatcher {
+    Match {
+        typ: RelNodeType,
+        children: Vec<RelNodeMatcher>,
+    },
+    Any,
 }
 
 pub fn scan(table: TableId) -> RelNode {
