@@ -6,7 +6,15 @@ are split into the bugs discovered while implementing group merging:
 1. `s01_shallow_merge.rs`: moving expressions is not enough;
 2. `s02_rewrite_children.rs`: rewriting child group IDs can create duplicates;
 3. `s03_cascading_merge.rs`: duplicate expressions require recursive group merges;
-4. `s04_stable_handles.rs`: callers may still hold IDs invalidated by a merge.
+4. `s04_parent_backlinks.rs`: parent backlinks avoid a full memo scan on each merge;
+5. `s05_stable_handles.rs`: callers may still hold IDs invalidated by a merge.
+
+The correctness-first implementation in step 3 scans all memo expressions to
+find references to the group being merged. Step 4 maintains the inverse edge,
+`child group -> parent expressions`, so each repair starts from only the affected
+parents. Collisions can still trigger more merges and eventually touch a large
+part of the memo, but unrelated expressions are no longer inspected by every
+individual merge.
 
 Run the examples with:
 

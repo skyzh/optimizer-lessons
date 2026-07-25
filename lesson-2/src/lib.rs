@@ -4,7 +4,8 @@ use std::sync::Arc;
 pub mod s01_shallow_merge;
 pub mod s02_rewrite_children;
 pub mod s03_cascading_merge;
-pub mod s04_stable_handles;
+pub mod s04_parent_backlinks;
+pub mod s05_stable_handles;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GroupId(pub usize);
@@ -77,6 +78,7 @@ pub struct Memo {
     // Secondary indexes. Keeping these synchronized is most of the difficulty.
     expr_to_id: HashMap<MemoExpr, ExprId>,
     expr_to_group: HashMap<ExprId, GroupId>,
+    parent_exprs: HashMap<GroupId, BTreeSet<ExprId>>,
 
     // Optimizer tasks can outlive a merge, so old IDs remain valid handles.
     group_redirect: HashMap<GroupId, GroupId>,
@@ -99,6 +101,7 @@ impl Memo {
             exprs: HashMap::new(),
             expr_to_id: HashMap::new(),
             expr_to_group: HashMap::new(),
+            parent_exprs: HashMap::new(),
             group_redirect: HashMap::new(),
             expr_redirect: HashMap::new(),
             next_group_id: 0,
@@ -150,13 +153,14 @@ impl Memo {
         };
 
         self.exprs.insert(expr_id, expr.clone());
-        self.expr_to_id.insert(expr, expr_id);
+        self.expr_to_id.insert(expr.clone(), expr_id);
         self.expr_to_group.insert(expr_id, group_id);
         self.groups
             .get_mut(&group_id)
             .unwrap()
             .exprs
             .insert(expr_id);
+        self.add_parent_links(expr_id, &expr);
         (group_id, expr_id)
     }
 
@@ -212,6 +216,14 @@ impl Memo {
         self.exprs.len()
     }
 
+    pub fn parent_exprs(&self, group_id: GroupId) -> Vec<ExprId> {
+        let group_id = self.representative(group_id);
+        self.parent_exprs
+            .get(&group_id)
+            .map(|parents| parents.iter().copied().collect())
+            .unwrap_or_default()
+    }
+
     pub fn groups_containing(&self, wanted: &MemoExpr) -> Vec<GroupId> {
         let wanted = self.canonicalize_expr(wanted.clone());
         let mut groups = self
@@ -245,6 +257,26 @@ impl Memo {
             *child = self.representative(*child);
         }
         expr
+    }
+
+    fn add_parent_links(&mut self, expr_id: ExprId, expr: &MemoExpr) {
+        for &child in &expr.children {
+            self.parent_exprs.entry(child).or_default().insert(expr_id);
+        }
+    }
+
+    fn remove_parent_links(&mut self, expr_id: ExprId, expr: &MemoExpr) {
+        for &child in &expr.children {
+            let remove_entry = if let Some(parents) = self.parent_exprs.get_mut(&child) {
+                parents.remove(&expr_id);
+                parents.is_empty()
+            } else {
+                false
+            };
+            if remove_entry {
+                self.parent_exprs.remove(&child);
+            }
+        }
     }
 
     fn move_group(&mut self, merge_into: GroupId, merge_from: GroupId) -> GroupId {
@@ -282,10 +314,10 @@ impl Memo {
             }
         }
         for group in self.groups.values_mut() {
-            if let Some(winner) = &mut group.winner {
-                if winner.expr_id == from {
-                    winner.expr_id = to;
-                }
+            if let Some(winner) = &mut group.winner
+                && winner.expr_id == from
+            {
+                winner.expr_id = to;
             }
         }
     }
@@ -349,6 +381,19 @@ impl Memo {
                     ));
                 }
             }
+        }
+
+        let mut expected_parent_exprs = HashMap::<GroupId, BTreeSet<ExprId>>::new();
+        for (&expr_id, expr) in &self.exprs {
+            for &child in &expr.children {
+                expected_parent_exprs
+                    .entry(child)
+                    .or_default()
+                    .insert(expr_id);
+            }
+        }
+        if self.parent_exprs != expected_parent_exprs {
+            return Err("parent-expression backlinks are stale".to_string());
         }
         Ok(())
     }

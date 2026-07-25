@@ -28,9 +28,11 @@ impl Memo {
             if self.expr_to_id.get(&old_expr) == Some(&expr_id) {
                 self.expr_to_id.remove(&old_expr);
             }
+            self.remove_parent_links(expr_id, &old_expr);
             self.exprs.insert(expr_id, new_expr.clone());
             // This can overwrite another expression with the same key.
-            self.expr_to_id.insert(new_expr, expr_id);
+            self.expr_to_id.insert(new_expr.clone(), expr_id);
+            self.add_parent_links(expr_id, &new_expr);
         }
         merge_into
     }
