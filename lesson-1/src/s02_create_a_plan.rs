@@ -14,7 +14,7 @@ pub fn plan() -> RelNode {
 }
 
 pub fn join_commute(node: Arc<RelNode>) -> Option<Arc<RelNode>> {
-    if let RelNode::Join(ref a) = &*node {
+    if let RelNode::Join(a) = &*node {
         // TODO: rewrite the condition
         return Some(join(a.right.clone(), a.left.clone(), a.cond.clone()).into());
     }
@@ -22,7 +22,7 @@ pub fn join_commute(node: Arc<RelNode>) -> Option<Arc<RelNode>> {
 }
 
 pub fn join_assoc(node: Arc<RelNode>) -> Option<Arc<RelNode>> {
-    if let RelNode::Join(ref a) = &*node {
+    if let RelNode::Join(a) = &*node {
         if let RelNode::Join(b) = &*a.left {
             return Some(
                 join(
