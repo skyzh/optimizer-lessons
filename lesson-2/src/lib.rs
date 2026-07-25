@@ -5,7 +5,9 @@ pub mod s01_shallow_merge;
 pub mod s02_rewrite_children;
 pub mod s03_cascading_merge;
 pub mod s04_parent_backlinks;
-pub mod s05_stable_handles;
+
+#[cfg(test)]
+mod merge_state_tests;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GroupId(pub usize);
