@@ -4,76 +4,73 @@ impl Memo {
     /// Merge two equivalent groups while preserving all memo invariants. This
     /// correctness-first version scans the whole memo to find parent expressions.
     pub fn merge_group_scanning(&mut self, merge_into: GroupId, merge_from: GroupId) -> GroupId {
-        let result = self.merge_group_scanning_inner(merge_into, merge_from);
-        debug_assert!(self.check_invariants().is_ok());
-        result
-    }
+        let result_group = self.representative(merge_into);
+        let mut merge_worklist = vec![(merge_into, merge_from)];
 
-    fn merge_group_scanning_inner(&mut self, merge_into: GroupId, merge_from: GroupId) -> GroupId {
-        let merge_into = self.representative(merge_into);
-        let merge_from = self.representative(merge_from);
-        if merge_into == merge_from {
-            return merge_into;
-        }
-        self.move_group(merge_into, merge_from);
-
-        let mut affected = self
-            .exprs
-            .iter()
-            .filter_map(|(expr_id, expr)| expr.children.contains(&merge_from).then_some(*expr_id))
-            .collect::<Vec<ExprId>>();
-        affected.sort();
-
-        let mut pending_group_merges = Vec::new();
-        for expr_id in affected {
-            // An earlier collision in this pass may already have removed it.
-            let Some(old_expr) = self.exprs.get(&expr_id).cloned() else {
-                continue;
-            };
-            let new_expr = self.canonicalize_expr(old_expr.clone());
-            if old_expr == new_expr {
-                continue;
-            }
-            if self.expr_to_id.get(&old_expr) == Some(&expr_id) {
-                self.expr_to_id.remove(&old_expr);
-            }
-            self.remove_parent_links(expr_id, &old_expr);
-
-            if let Some(&existing_expr_id) = self.expr_to_id.get(&new_expr) {
-                let existing_expr_id = self.representative_expr(existing_expr_id);
-                let duplicate_group = self.expr_to_group.remove(&expr_id).unwrap();
-                let existing_group = self.group_of_expr(existing_expr_id);
-
-                self.exprs.remove(&expr_id);
-                self.groups
-                    .get_mut(&duplicate_group)
-                    .unwrap()
-                    .exprs
-                    .remove(&expr_id);
-                self.redirect_expr(expr_id, existing_expr_id);
-
-                if self.representative(duplicate_group) != existing_group {
-                    pending_group_merges.push((existing_group, duplicate_group));
-                }
-            } else {
-                self.exprs.insert(expr_id, new_expr.clone());
-                self.expr_to_id.insert(new_expr.clone(), expr_id);
-                self.add_parent_links(expr_id, &new_expr);
-            }
-        }
-
-        // A rewritten expression can collide with an existing expression in a
-        // different group. Those groups are equivalent, and merging them can
-        // cause the same situation in their parents.
-        for (merge_into, merge_from) in pending_group_merges {
+        while let Some((merge_into, merge_from)) = merge_worklist.pop() {
             let merge_into = self.representative(merge_into);
             let merge_from = self.representative(merge_from);
-            if merge_into != merge_from {
-                self.merge_group_scanning_inner(merge_into, merge_from);
+            if merge_into == merge_from {
+                continue;
             }
+            self.move_group(merge_into, merge_from);
+
+            let mut affected = self
+                .exprs
+                .iter()
+                .filter_map(|(expr_id, expr)| {
+                    expr.children.contains(&merge_from).then_some(*expr_id)
+                })
+                .collect::<Vec<ExprId>>();
+            affected.sort();
+
+            let mut discovered_merges = Vec::new();
+            for expr_id in affected {
+                // An earlier collision in this pass may already have removed it.
+                let Some(old_expr) = self.exprs.get(&expr_id).cloned() else {
+                    continue;
+                };
+                let new_expr = self.canonicalize_expr(old_expr.clone());
+                if old_expr == new_expr {
+                    continue;
+                }
+                if self.expr_to_id.get(&old_expr) == Some(&expr_id) {
+                    self.expr_to_id.remove(&old_expr);
+                }
+                self.remove_parent_links(expr_id, &old_expr);
+
+                if let Some(&existing_expr_id) = self.expr_to_id.get(&new_expr) {
+                    let existing_expr_id = self.representative_expr(existing_expr_id);
+                    let duplicate_group = self.expr_to_group.remove(&expr_id).unwrap();
+                    let existing_group = self.group_of_expr(existing_expr_id);
+
+                    self.exprs.remove(&expr_id);
+                    self.groups
+                        .get_mut(&duplicate_group)
+                        .unwrap()
+                        .exprs
+                        .remove(&expr_id);
+                    self.redirect_expr(expr_id, existing_expr_id);
+
+                    if self.representative(duplicate_group) != existing_group {
+                        discovered_merges.push((existing_group, duplicate_group));
+                    }
+                } else {
+                    self.exprs.insert(expr_id, new_expr.clone());
+                    self.expr_to_id.insert(new_expr.clone(), expr_id);
+                    self.add_parent_links(expr_id, &new_expr);
+                }
+            }
+
+            // Process collisions in the same depth-first order as the recursive
+            // algorithm, but keep the pending work on the heap instead of the
+            // call stack.
+            merge_worklist.extend(discovered_merges.into_iter().rev());
         }
 
-        self.representative(merge_into)
+        let result = self.representative(result_group);
+        debug_assert!(self.check_invariants().is_ok());
+        result
     }
 }
 

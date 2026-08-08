@@ -1,5 +1,12 @@
 use crate::{GroupId, Memo, MemoExpr, RelNodeType, Winner};
 
+type MergeGroups = fn(&mut Memo, GroupId, GroupId) -> GroupId;
+
+const MERGE_IMPLEMENTATIONS: [(&str, MergeGroups); 2] = [
+    ("scanning", Memo::merge_group_scanning),
+    ("backlinks", Memo::merge_group),
+];
+
 fn unary(typ: RelNodeType, child: GroupId) -> MemoExpr {
     MemoExpr::new(typ, vec![child])
 }
@@ -52,4 +59,69 @@ fn merging_groups_keeps_the_cheaper_winner() {
         })
     );
     assert!(memo.check_invariants().is_ok());
+}
+
+#[test]
+fn deep_unary_parent_cascade_uses_bounded_stack() {
+    const DEPTH: usize = 7_000;
+
+    for (implementation, merge_groups) in MERGE_IMPLEMENTATIONS {
+        let mut memo = Memo::new();
+        let (scan_1, _) = memo.add_expr(MemoExpr::new(RelNodeType::Scan("t1"), vec![]));
+        let (scan_2, _) = memo.add_expr(MemoExpr::new(RelNodeType::Scan("t1-alias"), vec![]));
+        let mut parent_1 = scan_1;
+        let mut parent_2 = scan_2;
+
+        for _ in 0..DEPTH {
+            parent_1 = memo.add_expr(unary(RelNodeType::Project("x"), parent_1)).0;
+            parent_2 = memo.add_expr(unary(RelNodeType::Project("x"), parent_2)).0;
+        }
+
+        merge_groups(&mut memo, scan_1, scan_2);
+
+        assert_eq!(
+            memo.representative(parent_1),
+            memo.representative(parent_2),
+            "{implementation} merge stopped before reaching the root"
+        );
+        assert_eq!(memo.group_count(), DEPTH + 1, "{implementation}");
+        assert_eq!(memo.expression_count(), DEPTH + 2, "{implementation}");
+        assert!(memo.check_invariants().is_ok(), "{implementation}");
+    }
+}
+
+#[test]
+fn cascading_merge_handles_cycles_and_repeated_children() {
+    for (implementation, merge_groups) in MERGE_IMPLEMENTATIONS {
+        let mut memo = Memo::new();
+        let (scan_1, _) = memo.add_expr(MemoExpr::new(RelNodeType::Scan("t1"), vec![]));
+        let (scan_2, _) = memo.add_expr(MemoExpr::new(RelNodeType::Scan("t1-alias"), vec![]));
+
+        memo.add_expr_to_group(
+            MemoExpr::new(RelNodeType::Filter("self-cycle"), vec![scan_1]),
+            scan_1,
+        );
+        memo.add_expr_to_group(
+            MemoExpr::new(RelNodeType::Filter("self-cycle"), vec![scan_2]),
+            scan_2,
+        );
+
+        let (repeated_1, _) = memo.add_expr(MemoExpr::new(
+            RelNodeType::Filter("x = x"),
+            vec![scan_1, scan_1],
+        ));
+        let (repeated_2, _) = memo.add_expr(MemoExpr::new(
+            RelNodeType::Filter("x = x"),
+            vec![scan_2, scan_2],
+        ));
+
+        merge_groups(&mut memo, scan_1, scan_2);
+
+        assert_eq!(
+            memo.representative(repeated_1),
+            memo.representative(repeated_2),
+            "{implementation} merge missed a repeated-child collision"
+        );
+        assert!(memo.check_invariants().is_ok(), "{implementation}");
+    }
 }
