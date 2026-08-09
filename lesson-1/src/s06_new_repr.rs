@@ -73,7 +73,7 @@ pub fn join(
     cond: impl Into<Arc<RelNode>>,
 ) -> RelNode {
     RelNode {
-        typ: RelNodeType::Filter,
+        typ: RelNodeType::Join,
         children: vec![left.into(), right.into(), cond.into()],
         data: Arc::new(RelAttrType::None),
     }
@@ -251,4 +251,21 @@ pub fn plan() -> RelNode {
         ),
         eq_pred(column_ref_pred(2), const_pred(3)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_preserves_the_join_node_type() {
+        let root = Arc::new(plan());
+        let filter = Filter::try_from_relnode(root).expect("plan root should be a filter");
+        let join = filter.child();
+
+        assert!(
+            Join::try_from_relnode(join).is_some(),
+            "the filter input should be a join"
+        );
+    }
 }
