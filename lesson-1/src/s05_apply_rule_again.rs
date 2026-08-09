@@ -37,7 +37,7 @@ pub enum BindRelNode {
 }
 
 fn join_commute_memo(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
-    if let BindRelNode::Join(ref a) = &*node {
+    if let BindRelNode::Join(a) = &*node {
         // TODO: rewrite the condition
         return Some(Arc::new(BindRelNode::Join(BindJoin {
             right: a.left.clone(),
@@ -49,7 +49,7 @@ fn join_commute_memo(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
 }
 
 fn join_assoc_memo(node: Arc<BindRelNode>) -> Option<Arc<BindRelNode>> {
-    if let BindRelNode::Join(ref a) = &*node {
+    if let BindRelNode::Join(a) = &*node {
         if let BindRelNode::Join(b) = &*a.left {
             return Some(Arc::new(BindRelNode::Join(BindJoin {
                 left: b.left.clone(),
