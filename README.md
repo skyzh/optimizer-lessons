@@ -4,3 +4,4 @@ This is the code for the [Lessons Learned from Building a Query Optimizer](https
 
 * [Lesson 1: Plan Representation](lesson-1)
 * [Lesson 2: A Good Memo Table Is Hard to Build](lesson-2)
+* [Lesson 3: A Memo Merge Is a Transaction](lesson-3)
