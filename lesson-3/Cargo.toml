@@ -1,0 +1,8 @@
+[package]
+name = "optimizer-blog-lesson-3"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+optimizer-blog-lesson-2 = { path = "../lesson-2" }

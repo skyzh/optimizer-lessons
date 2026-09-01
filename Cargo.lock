@@ -9,3 +9,10 @@ version = "0.1.0"
 [[package]]
 name = "optimizer-blog-lesson-2"
 version = "0.1.0"
+
+[[package]]
+name = "optimizer-blog-lesson-3"
+version = "0.1.0"
+dependencies = [
+ "optimizer-blog-lesson-2",
+]
